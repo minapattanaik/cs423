@@ -22,6 +22,25 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Override theme for CropImageActivity: it extends AppCompatActivity and
+             requires a Theme.AppCompat (or descendant); our app theme is framework-
+             Material, so we force a compatible theme here only for this activity. -->
+        <activity
+            android:name="com.canhub.cropper.CropImageActivity"
+            android:theme="@style/Theme.AppCompat.Light"
+            tools:replace="android:theme" />
+
+        <!-- FileProvider exposes cache/crop/ temp files to android-image-cropper -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

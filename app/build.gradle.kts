@@ -60,11 +60,14 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     // imported libraries
     implementation("io.coil-kt:coil:2.7.0") // coil, used for image loading
+    implementation("io.coil-kt:coil-compose:2.7.0") // AsyncImage composable
     implementation("androidx.exifinterface:exifinterface:1.4.2") // exifInterface, auto-rotates portraits
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.4") // image state safety
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4") // viewModel() in composables
     implementation(libs.androidx.lifecycle.runtime.ktx.v284) // same as above
-    implementation(libs.ucrop) // ucrop, for cropping function
+    implementation(libs.android.image.cropper) // android-image-cropper, for cropping function. replaced uCrop
     implementation(libs.gpuimage) // gpuimage, blur and sharpen
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2") // kotlin coroutine for background processes
-    implementation(project(":opencv")) // opencv -- LOOK AT README FOR INSTRUCTIONS
+    // implementation(project(":opencv")) // opencv -- LOOK AT README FOR INSTRUCTIONS
+    // commented out for time being; breaks current pipeline
 }
