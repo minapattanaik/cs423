@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import org.opencv.android.OpenCVLoader
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -58,6 +59,7 @@ import com.example.cs423application.ui.theme.CS423ApplicationTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        OpenCVLoader.initLocal()
         enableEdgeToEdge()
         setContent {
             CS423ApplicationTheme {
@@ -128,10 +130,23 @@ fun ImagePipelineScreen(vm: ImageViewModel = viewModel()) {
             state.correctedBitmap?.let { bmp ->
                 GestureImageSection(
                     bitmap             = bmp,
+                    isErasing          = state.isErasing,
                     onGestureCompleted = { points, containerSize ->
                         vm.onGestureCompleted(points, containerSize, bmp)
                     }
                 )
+                state.lastGestureLabel?.let { label ->
+                    Text(
+                        "Recognized: $label",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                }
+                if (state.canUndo) {
+                    Button(onClick = { vm.undo() }) {
+                        Text("Undo Erase")
+                    }
+                }
                 Button(onClick = { vm.saveImage() }) {
                     Text("Save Copy")
                 }
@@ -178,15 +193,21 @@ private fun ProcessingIndicator() {
 @Composable
 private fun GestureImageSection(
     bitmap: Bitmap,
+    isErasing: Boolean,
     onGestureCompleted: (points: List<Offset>, containerSize: IntSize) -> Unit
-) {
+)
+
+{
     Text(
         "Stage 2 done: ${bitmap.width}×${bitmap.height} (orientation corrected)",
         style = MaterialTheme.typography.labelSmall
     )
 
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
-    val gesturePoints  = remember { mutableStateListOf<Offset>() }
+    val stroke1 = remember { mutableStateListOf<Offset>() }
+    val stroke2 = remember { mutableStateListOf<Offset>() }
+    var strokeCount by remember { mutableStateOf(0) }
+    val displayPoints = remember { mutableStateListOf<Offset>() }
 
     Box(
         modifier = Modifier
@@ -200,6 +221,9 @@ private fun GestureImageSection(
             modifier           = Modifier.fillMaxSize(),
             contentScale       = ContentScale.Fit
         )
+        if (isErasing) {
+            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+        }
 
         // draws stroke live then forwards to viewmodel on lift
         Canvas(
@@ -208,30 +232,77 @@ private fun GestureImageSection(
                 .pointerInput(bitmap) {
                     detectDragGestures(
                         onDragStart = { offset ->
-                            gesturePoints.clear()
-                            gesturePoints.add(offset)
+                            if (strokeCount == 0) {
+                                stroke1.clear()
+                                stroke2.clear()
+                                displayPoints.clear()
+                                stroke1.add(offset)
+                                displayPoints.add(offset)
+                            } else {
+                                stroke2.add(offset)
+                                displayPoints.add(offset)
+                            }
                         },
                         onDrag = { change, _ ->
-                            gesturePoints.add(change.position)
+                            if (strokeCount == 0) {
+                                stroke1.add(change.position)
+                            } else {
+                                stroke2.add(change.position)
+                            }
+                            displayPoints.add(change.position)
                             change.consume()
                         },
                         onDragEnd = {
-                            if (gesturePoints.size >= 4) {
-                                onGestureCompleted(gesturePoints.toList(), containerSize)
+                            strokeCount++
+                            if (strokeCount == 1) {
+                                // check if it's already a rectangle with just one stroke
+                                val (name, score) = ProtractorRecognizer.recognize(stroke1.map { GPoint(it.x, it.y) })
+                                if (name == "rectangle" && score >= 2.0f) {
+                                    onGestureCompleted(stroke1.toList(), containerSize)
+                                    stroke1.clear()
+                                    displayPoints.clear()
+                                    strokeCount = 0
+                                }
+                                // otherwise keep stroke visible and wait for second stroke (X gesture)
+                            } else if (strokeCount >= 2) {
+                                val allPoints = stroke1 + stroke2
+                                if (allPoints.size >= 4) {
+                                    onGestureCompleted(allPoints, containerSize)
+                                }
+                                stroke1.clear()
+                                stroke2.clear()
+                                displayPoints.clear()
+                                strokeCount = 0
                             }
-                            gesturePoints.clear()
                         },
-                        onDragCancel = { gesturePoints.clear() }
+                        onDragCancel = {
+                            stroke1.clear()
+                            stroke2.clear()
+                            displayPoints.clear()
+                            strokeCount = 0
+                        }
                     )
                 }
         ) {
-            if (gesturePoints.size > 1) {
-                val path = Path().apply {
-                    moveTo(gesturePoints[0].x, gesturePoints[0].y)
-                    gesturePoints.drop(1).forEach { lineTo(it.x, it.y) }
+            if (stroke1.size > 1) {
+                val path1 = Path().apply {
+                    moveTo(stroke1[0].x, stroke1[0].y)
+                    stroke1.drop(1).forEach { lineTo(it.x, it.y) }
                 }
                 drawPath(
-                    path  = path,
+                    path  = path1,
+                    color = Color(0xBBFF4040),
+                    style = Stroke(width = 4f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                )
+            }
+            // draw stroke 2 separately so they don't connect
+            if (stroke2.size > 1) {
+                val path2 = Path().apply {
+                    moveTo(stroke2[0].x, stroke2[0].y)
+                    stroke2.drop(1).forEach { lineTo(it.x, it.y) }
+                }
+                drawPath(
+                    path  = path2,
                     color = Color(0xBBFF4040),
                     style = Stroke(width = 4f, cap = StrokeCap.Round, join = StrokeJoin.Round)
                 )
@@ -240,7 +311,7 @@ private fun GestureImageSection(
     }
 
     Text(
-        "Draw a rectangle on the image to crop",
+        "Draw a rectangle on the image to crop •  Draw an X to erase",
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
