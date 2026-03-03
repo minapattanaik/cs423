@@ -23,8 +23,12 @@ object ProtractorRecognizer {
         listOf(
             // clockwise
             ProtractorTemplate("rectangle", buildRectangleVector(clockwise = true)),
-            // counterclockwise
-            ProtractorTemplate("rectangle", buildRectangleVector(clockwise = false))
+            // counterwise
+            ProtractorTemplate("rectangle", buildRectangleVector(clockwise = false)),
+            // first diagonal: top-left to bottom-right
+            ProtractorTemplate("x", buildXVector(leftToRight = true)),
+            // first diagonal: top-right to bottom-left
+            ProtractorTemplate("x", buildXVector(leftToRight = false))
         )
     }
 
@@ -62,6 +66,45 @@ object ProtractorRecognizer {
             for (i in 1..s)      raw.add(GPoint(1f, 1f - i.toFloat() / s))       // right
             for (i in 1 until s) raw.add(GPoint(1f - i.toFloat() / s, 0f))       // top
         }
+        return vectorize(resample(raw, N), oSensitive = false)
+    }
+
+    /**
+     * X gesture: two diagonal strokes concatenated.
+     * leftToRight = true  → stroke1: top-left→bottom-right, stroke2: top-right→bottom-left
+     * leftToRight = false → stroke1: top-right→bottom-left, stroke2: top-left→bottom-right
+     *
+     * The two strokes are concatenated into one point sequence so the single-stroke
+     * Protractor algorithm can match them.
+     */
+    private fun buildXVector(leftToRight: Boolean): FloatArray {
+        val raw = mutableListOf<GPoint>()
+        val steps = 8
+
+        if (leftToRight) {
+            // stroke 1: (0,0) → (1,1)
+            for (i in 0..steps) {
+                val t = i.toFloat() / steps
+                raw.add(GPoint(t, t))
+            }
+            // stroke 2: (1,0) → (0,1)
+            for (i in 0..steps) {
+                val t = i.toFloat() / steps
+                raw.add(GPoint(1f - t, t))
+            }
+        } else {
+            // stroke 1: (1,0) → (0,1)
+            for (i in 0..steps) {
+                val t = i.toFloat() / steps
+                raw.add(GPoint(1f - t, t))
+            }
+            // stroke 2: (0,0) → (1,1)
+            for (i in 0..steps) {
+                val t = i.toFloat() / steps
+                raw.add(GPoint(t, t))
+            }
+        }
+
         return vectorize(resample(raw, N), oSensitive = false)
     }
 

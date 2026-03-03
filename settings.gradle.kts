@@ -22,4 +22,4 @@ dependencyResolutionManagement {
     }
 
 rootProject.name = "CS 423 Application"
-include(":app")}
+include(":app", ":opencv")}
