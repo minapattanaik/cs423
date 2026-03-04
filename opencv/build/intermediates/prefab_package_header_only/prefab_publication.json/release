@@ -1,5 +1,5 @@
 {
-  "installationFolder": "C:\\Users\\Huda\\Documents\\CS478\\cs423\\opencv\\build\\intermediates\\prefab_package\\release\\prefab",
+  "installationFolder": "/Users/anshpardeshi/Documents/CS423/cs423/opencv/build/intermediates/prefab_package/release/prefab",
   "gradlePath": ":opencv",
   "packageInfo": {
     "packageName": "opencv",
@@ -8,7 +8,7 @@
     "modules": [
       {
         "moduleName": "opencv_jni_shared",
-        "moduleHeaders": "C:\\Users\\Huda\\Documents\\CS478\\cs423\\opencv\\native\\jni\\include",
+        "moduleHeaders": "/Users/anshpardeshi/Documents/CS423/cs423/opencv/native/jni/include",
         "moduleExportLibraries": [],
         "abis": []
       }

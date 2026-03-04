@@ -27,6 +27,30 @@ import org.opencv.imgproc.Imgproc
 import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.roundToInt
+import kotlin.math.*
+import kotlin.math.hypot
+private fun isArrowLike(points: List<Offset>): Boolean {
+    if (points.size < 8) return false
+
+    val start = points.first()
+    val end = points.last()
+    val directDist = hypot(end.x - start.x, end.y - start.y)
+
+    // path length (how wiggly)
+    var pathLen = 0.0
+    for (i in 1 until points.size) {
+        pathLen += hypot(
+            (points[i].x - points[i - 1].x).toDouble(),
+            (points[i].y - points[i - 1].y).toDouble()
+        )
+    }
+
+    if (directDist < 60) return false // too short to be intentional
+
+    // If the path is much longer than direct line distance, it's not a straight arrow stroke
+    val wiggleRatio = pathLen / directDist
+    return wiggleRatio < 1.25
+}
 
 data class CropRequest(val uri: Uri, val rect: Rect)
 
@@ -95,6 +119,21 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
      * if rectangle detected, saves bitmap and sends to composable
      */
     fun onGestureCompleted(points: List<Offset>, containerSize: IntSize, bitmap: Bitmap) {
+        // --- ARROW → BLUR/SHARPEN
+        if (points.size >= 8) {
+            val start = points.first()
+            val end = points.last()
+            val dx = end.x - start.x
+            val dy = end.y - start.y
+            val len = kotlin.math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
+            if (len >= 60f) {
+                val intent = computeArrowIntent(points)
+                launchBlurOrSharpen(intent, bitmap)
+                return
+                return
+            }
+        }
+
         if (points.size < 4) return
 
         val gdPoints      = points.map { GPoint(it.x, it.y) }
@@ -280,5 +319,80 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
             "${ctx.packageName}.fileprovider",
             srcFile
         )
+    }
+    private data class ArrowIntent(
+        val isBlur: Boolean,    // left = blur
+        val strength: Float     // based on length
+    )
+
+    private fun computeArrowIntent(points: List<Offset>): ArrowIntent {
+        val start = points.first()
+        val end = points.last()
+
+        val dx = end.x - start.x
+        val dy = end.y - start.y
+        val len = hypot(dx, dy)
+
+        val isBlur = dx < 0f // leftwards arrow = blur
+
+        //mapping:
+        val strength = (len / 80f).coerceIn(1f, 20f)
+
+        return ArrowIntent(isBlur = isBlur, strength = strength)
+    }
+
+    private fun launchBlurOrSharpen(intent: ArrowIntent, bitmap: Bitmap) {
+        _uiState.value = _uiState.value.copy(isProcessing = true)
+
+        viewModelScope.launch {
+            try {
+                val out = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val mat = org.opencv.core.Mat()
+                    org.opencv.android.Utils.bitmapToMat(bitmap, mat)
+
+                    if (intent.isBlur) {
+                        // Gaussian blur kernel must be odd
+                        val k = (intent.strength * 2).toInt()
+                            .coerceAtLeast(3)
+                            .let { if (it % 2 == 0) it + 1 else it }
+
+                        org.opencv.imgproc.Imgproc.GaussianBlur(
+                            mat, mat,
+                            org.opencv.core.Size(k.toDouble(), k.toDouble()),
+                            0.0
+                        )
+                    } else {
+                        // Sharpen = unsharp mask
+                        val blurred = org.opencv.core.Mat()
+                        org.opencv.imgproc.Imgproc.GaussianBlur(
+                            mat, blurred,
+                            org.opencv.core.Size(0.0, 0.0),
+                            3.0
+                        )
+                        org.opencv.core.Core.addWeighted(mat, 1.5, blurred, -0.5, 0.0, mat)
+                        blurred.release()
+                    }
+
+                    val result = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+                    org.opencv.android.Utils.matToBitmap(mat, result)
+                    mat.release()
+                    result
+                }
+
+                undoStack.addLast(bitmap)
+
+                _uiState.value = _uiState.value.copy(
+                    correctedBitmap = out,
+                    isProcessing = false,
+                    canUndo = true,
+                    lastGestureLabel = if (intent.isBlur) "arrow-left (blur)" else "arrow-right (sharpen)"
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    isProcessing = false,
+                    error = "Blur/sharpen failed: ${e.message}"
+                )
+            }
+        }
     }
 }
