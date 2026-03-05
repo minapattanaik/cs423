@@ -20,6 +20,9 @@ dependencyResolutionManagement {
             url = uri("https://jitpack.io")
         }
     }
+}
 
 rootProject.name = "CS 423 Application"
-include(":app")}
+include(":app")
+include(":opencv")
+project(":opencv").projectDir = file("opencv-4.12.0-android-sdk/OpenCV-android-sdk/sdk")

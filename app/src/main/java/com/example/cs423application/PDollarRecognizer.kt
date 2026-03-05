@@ -1,79 +1,138 @@
 package com.example.cs423application
 
 import kotlin.math.*
+
 data class GPoint(val x: Float, val y: Float)
 
-private data class ProtractorTemplate(val name: String, val vector: FloatArray)
+private data class PointCloud(val name: String, val points: List<GPoint>)
 
 /**
- * protractor recognizer: https://depts.washington.edu/acelab/proj/dollar/protractor.pdf
- * implements steps as follows:
- *      1. resample: n = 16 evenly spaced points
- *      2. vectorize: translate to centroid, rotate by angle, l2-normalize
- *      3. recognize: optimal-cosine-distance against stored template
+ * $P Point-Cloud Recognizer (Vatavu, Anthony, Wobbrock — ICMI 2012).
  *
- * returns Pair(name, score) where score = 1 / cosineDistance
- * higher score = better match; threshold ~2.0 utilized
+ * $P point-cloud recognizer
+ * implements pipeline as follows:
+ *      1. resample (N points along path)
+ *      2. scale (uniform scale so max(w, h) of bounding box = 1, aspect ratio preserved)
+ *      3. translate (centroid to origin)
+ *      4. match (greedy against stored templates)
+ *
+ * n=64 for finer shape resolution
+ *
+ * rectangle templates cover three aspect ratios (landscape 2:1, square 1:1, portrait 1:2)
  */
-object ProtractorRecognizer {
 
-    private const val N = 16
+// TODO: edit rectangle threshold to avoid triggering on circle (will ask on piazza)
+object PDollarRecognizer {
 
-    private val TEMPLATES: List<ProtractorTemplate> by lazy {
+    private const val N = 64      // point cloud size — higher N = finer shape resolution
+    private const val E = 0.5f   // exponent for step size in GreedyCloudMatch
+
+    private val TEMPLATES: List<PointCloud> by lazy {
         listOf(
-            // clockwise
-            ProtractorTemplate("rectangle", buildRectangleVector(clockwise = true)),
-            // counterclockwise
-            ProtractorTemplate("rectangle", buildRectangleVector(clockwise = false))
+            // square
+            PointCloud("rectangle", prepare(rectangleRaw(clockwise = true,  height = 1.0f))),
+            PointCloud("rectangle", prepare(rectangleRaw(clockwise = false, height = 1.0f))),
+            // portrait
+            PointCloud("rectangle", prepare(rectangleRaw(clockwise = true,  height = 2.0f))),
+            PointCloud("rectangle", prepare(rectangleRaw(clockwise = false, height = 2.0f))),
+            // landscape
+            PointCloud("rectangle", prepare(rectangleRaw(clockwise = true,  height = 0.5f))),
+            PointCloud("rectangle", prepare(rectangleRaw(clockwise = false, height = 0.5f))),
+            // X gesture
+            PointCloud("x",         prepare(xRaw(leftToRight = true))),
+            PointCloud("x",         prepare(xRaw(leftToRight = false)))
         )
     }
 
     fun recognize(rawPoints: List<GPoint>): Pair<String, Float> {
         if (rawPoints.size < 4) return Pair("unknown", 0f)
 
-        val candidate = vectorize(resample(rawPoints, N), oSensitive = false)
+        val candidate = prepare(rawPoints)
 
-        var maxScore = 0f
+        var minDist  = Float.MAX_VALUE
         var bestName = "unknown"
 
         for (t in TEMPLATES) {
-            val dist  = optimalCosineDistance(t.vector, candidate)
-            val score = if (dist == 0f) Float.MAX_VALUE else 1f / dist
-            if (score > maxScore) { maxScore = score; bestName = t.name }
+            val d = greedyCloudMatch(candidate, t.points)
+            if (d < minDist) { minDist = d; bestName = t.name }
         }
 
-        return Pair(bestName, maxScore)
+        val score = if (minDist == 0f) Float.MAX_VALUE else 1f / minDist
+        return Pair(bestName, score)
     }
 
     /**
-     * rectangle template
+     * tests step = floor(n^(1-e)) starting offsets; for each offset runs
+     * CloudDistance in both directions and keeps minimum
      */
-    private fun buildRectangleVector(clockwise: Boolean): FloatArray {
-        val raw = mutableListOf<GPoint>()
-        val s   = 8
-        if (clockwise) {
-            for (i in 0..s)      raw.add(GPoint(i.toFloat() / s, 0f))            // top
-            for (i in 1..s)      raw.add(GPoint(1f, i.toFloat() / s))            // right
-            for (i in 1..s)      raw.add(GPoint(1f - i.toFloat() / s, 1f))       // bottom
-            for (i in 1 until s) raw.add(GPoint(0f, 1f - i.toFloat() / s))       // left
-        } else {
-            for (i in 0..s)      raw.add(GPoint(0f, i.toFloat() / s))            // left
-            for (i in 1..s)      raw.add(GPoint(i.toFloat() / s, 1f))            // bottom
-            for (i in 1..s)      raw.add(GPoint(1f, 1f - i.toFloat() / s))       // right
-            for (i in 1 until s) raw.add(GPoint(1f - i.toFloat() / s, 0f))       // top
+    private fun greedyCloudMatch(points: List<GPoint>, template: List<GPoint>): Float {
+        val n    = points.size
+        val step = floor(n.toFloat().pow(1f - E)).toInt().coerceAtLeast(1)
+        var min  = Float.MAX_VALUE
+        var i    = 0
+        while (i < n) {
+            val d1 = cloudDistance(points,   template, i)
+            val d2 = cloudDistance(template, points,   i)
+            min = minOf(min, d1, d2)
+            i += step
         }
-        return vectorize(resample(raw, N), oSensitive = false)
+        return min
+    }
+
+    /**
+     * weighted nearest-neighbor sum starting at [start], cycling through pts1
+     * w = 1 − ((i − start + n) mod n)/n, so earlier pairs count more
+     */
+    private fun cloudDistance(pts1: List<GPoint>, pts2: List<GPoint>, start: Int): Float {
+        val n       = pts1.size
+        val matched = BooleanArray(n)
+        var sum     = 0f
+        var i       = start
+        do {
+            var nearest = -1
+            var minD    = Float.MAX_VALUE
+            for (j in pts2.indices) {
+                if (!matched[j]) {
+                    val d = dist(pts1[i], pts2[j])
+                    if (d < minD) { minD = d; nearest = j }
+                }
+            }
+            matched[nearest] = true
+            val weight = 1f - ((i - start + n) % n).toFloat() / n
+            sum += weight * minD
+            i = (i + 1) % n
+        } while (i != start)
+        return sum
+    }
+
+    // normalization taken from reference JS
+    private fun prepare(raw: List<GPoint>): List<GPoint> =
+        translateToCentroid(scaleUniform(resample(raw, N)))
+
+    private fun scaleUniform(points: List<GPoint>): List<GPoint> {
+        val minX  = points.minOf { it.x }
+        val maxX  = points.maxOf { it.x }
+        val minY  = points.minOf { it.y }
+        val maxY  = points.maxOf { it.y }
+        val size  = maxOf(maxX - minX, maxY - minY).coerceAtLeast(1e-6f)
+        return points.map { GPoint((it.x - minX) / size, (it.y - minY) / size) }
+    }
+
+    private fun translateToCentroid(points: List<GPoint>): List<GPoint> {
+        val cx = points.sumOf { it.x.toDouble() }.toFloat() / points.size
+        val cy = points.sumOf { it.y.toDouble() }.toFloat() / points.size
+        return points.map { GPoint(it.x - cx, it.y - cy) }
     }
 
     private fun resample(points: List<GPoint>, n: Int): List<GPoint> {
         val totalLen = pathLength(points)
         if (totalLen == 0f) return List(n) { points.first() }
 
-        val I        = totalLen / (n - 1)
-        var D        = 0f
-        val newPts   = mutableListOf(points[0])
-        val pts      = points.toMutableList()
-        var i        = 1
+        val I      = totalLen / (n - 1)
+        var D      = 0f
+        val newPts = mutableListOf(points[0])
+        val pts    = points.toMutableList()
+        var i      = 1
 
         while (i < pts.size) {
             val d = dist(pts[i - 1], pts[i])
@@ -96,60 +155,44 @@ object ProtractorRecognizer {
         return newPts.take(n)
     }
 
-
     /**
-     * oSensitive = false: fully rotation-invariant (delta = –indicativeAngle).
-     * oSensitive = true : snap to nearest 45° multiple.
+     * rectangle raw point sequence (before normalization).
+     * [height] controls aspect ratio with width fixed at 1.0:
+     *   height = 0.5 -> landscape (2:1),  height = 1.0 -> square,  height = 2.0 -> portrait (1:2)
      */
-    private fun vectorize(points: List<GPoint>, oSensitive: Boolean): FloatArray {
-        // centroid
-        val cx = points.sumOf { it.x.toDouble() }.toFloat() / points.size
-        val cy = points.sumOf { it.y.toDouble() }.toFloat() / points.size
-
-        val t = points.map { GPoint(it.x - cx, it.y - cy) }
-
-        // indicative angle from first resampled point
-        val indicativeAngle = atan2(t[0].y, t[0].x)
-        val delta = if (oSensitive) {
-            val base = (PI.toFloat() / 4f) *
-                floor((indicativeAngle + PI.toFloat() / 8f) / (PI.toFloat() / 4f))
-            base - indicativeAngle
+    private fun rectangleRaw(clockwise: Boolean, height: Float = 1.0f): List<GPoint> {
+        val raw = mutableListOf<GPoint>()
+        val s   = 8
+        if (clockwise) {
+            for (i in 0..s)      raw.add(GPoint(i.toFloat() / s, 0f))
+            for (i in 1..s)      raw.add(GPoint(1f, i.toFloat() / s * height))
+            for (i in 1..s)      raw.add(GPoint(1f - i.toFloat() / s, height))
+            for (i in 1 until s) raw.add(GPoint(0f, height - i.toFloat() / s * height))
         } else {
-            -indicativeAngle
+            for (i in 0..s)      raw.add(GPoint(0f, i.toFloat() / s * height))
+            for (i in 1..s)      raw.add(GPoint(i.toFloat() / s, height))
+            for (i in 1..s)      raw.add(GPoint(1f, height - i.toFloat() / s * height))
+            for (i in 1 until s) raw.add(GPoint(1f - i.toFloat() / s, 0f))
         }
-
-        val cosD = cos(delta)
-        val sinD = sin(delta)
-        val vec  = FloatArray(2 * t.size)
-        var sum  = 0f
-
-        for ((idx, p) in t.withIndex()) {
-            val nx = p.x * cosD - p.y * sinD
-            val ny = p.y * cosD + p.x * sinD
-            vec[2 * idx]     = nx
-            vec[2 * idx + 1] = ny
-            sum += nx * nx + ny * ny
-        }
-
-        val mag = sqrt(sum)
-        if (mag > 0f) for (k in vec.indices) vec[k] /= mag
-        return vec
+        return raw
     }
 
     /**
-     * solution taken directly from paper
+     * X gesture (2 diagonal strokes concat into one sequence)
+     * leftToRight = true  → \ then /
+     * leftToRight = false → / then \
      */
-    private fun optimalCosineDistance(v: FloatArray, w: FloatArray): Float {
-        var a = 0f
-        var b = 0f
-        var i = 0
-        while (i < v.size) {
-            a += v[i] * w[i]     + v[i + 1] * w[i + 1]
-            b += v[i] * w[i + 1] - v[i + 1] * w[i]
-            i += 2
+    private fun xRaw(leftToRight: Boolean): List<GPoint> {
+        val raw = mutableListOf<GPoint>()
+        val s   = 8
+        if (leftToRight) {
+            for (i in 0..s) { val t = i.toFloat() / s; raw.add(GPoint(t,      t)) }
+            for (i in 0..s) { val t = i.toFloat() / s; raw.add(GPoint(1f - t, t)) }
+        } else {
+            for (i in 0..s) { val t = i.toFloat() / s; raw.add(GPoint(1f - t, t)) }
+            for (i in 0..s) { val t = i.toFloat() / s; raw.add(GPoint(t,      t)) }
         }
-        val angle = if (a == 0f) (PI / 2).toFloat() else atan(b / a)
-        return acos((a * cos(angle) + b * sin(angle)).coerceIn(-1f, 1f))
+        return raw
     }
 
     private fun dist(a: GPoint, b: GPoint): Float {

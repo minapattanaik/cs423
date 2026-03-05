@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import org.opencv.android.OpenCVLoader
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -46,6 +47,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
@@ -58,6 +60,7 @@ import com.example.cs423application.ui.theme.CS423ApplicationTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        OpenCVLoader.initLocal()
         enableEdgeToEdge()
         setContent {
             CS423ApplicationTheme {
@@ -128,10 +131,24 @@ fun ImagePipelineScreen(vm: ImageViewModel = viewModel()) {
             state.correctedBitmap?.let { bmp ->
                 GestureImageSection(
                     bitmap             = bmp,
+                    isErasing          = state.isErasing,
+                    awaitingXStroke    = state.awaitingXStroke,
                     onGestureCompleted = { points, containerSize ->
                         vm.onGestureCompleted(points, containerSize, bmp)
                     }
                 )
+                state.lastGestureLabel?.let { label ->
+                    Text(
+                        "Recognized: $label",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                }
+                if (state.canUndo) {
+                    Button(onClick = { vm.undo() }) {
+                        Text("Undo Erase")
+                    }
+                }
                 Button(onClick = { vm.saveImage() }) {
                     Text("Save Copy")
                 }
@@ -155,11 +172,12 @@ private fun ImagePickerSection(onPick: () -> Unit) {
 
 @Composable
 private fun SourceImagePreview(uri: Uri) {
+    val imageHeight = (LocalConfiguration.current.screenHeightDp * 0.65f).dp
     Text("Loaded via Coil", style = MaterialTheme.typography.labelSmall)
     AsyncImage(
         model              = uri,
         contentDescription = "Original image",
-        modifier           = Modifier.fillMaxWidth().height(300.dp),
+        modifier           = Modifier.fillMaxWidth().height(imageHeight),
         contentScale       = ContentScale.Fit
     )
 }
@@ -171,13 +189,13 @@ private fun ProcessingIndicator() {
 }
 
 /**
- * displays orientation-corrected bitmap with overlay
- * gesture recognition and coordinate math forwarded to ViewModel using
- * [onGestureCompleted]
+ * displays orientation-corrected bitmap with two stroke overlay
  */
 @Composable
 private fun GestureImageSection(
     bitmap: Bitmap,
+    isErasing: Boolean,
+    awaitingXStroke: Boolean,
     onGestureCompleted: (points: List<Offset>, containerSize: IntSize) -> Unit
 ) {
     Text(
@@ -185,13 +203,19 @@ private fun GestureImageSection(
         style = MaterialTheme.typography.labelSmall
     )
 
-    var containerSize by remember { mutableStateOf(IntSize.Zero) }
-    val gesturePoints  = remember { mutableStateListOf<Offset>() }
+    val imageHeight = (LocalConfiguration.current.screenHeightDp * 0.65f).dp
+    var containerSize    by remember { mutableStateOf(IntSize.Zero) }
+    val gesturePoints     = remember { mutableStateListOf<Offset>() }
+    var savedFirstStroke by remember { mutableStateOf<List<Offset>>(emptyList()) }
+
+    LaunchedEffect(awaitingXStroke) {
+        if (!awaitingXStroke) savedFirstStroke = emptyList()
+    }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(300.dp)
+            .height(imageHeight)
             .onSizeChanged { containerSize = it }
     ) {
         Image(
@@ -200,8 +224,10 @@ private fun GestureImageSection(
             modifier           = Modifier.fillMaxSize(),
             contentScale       = ContentScale.Fit
         )
+        if (isErasing) {
+            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+        }
 
-        // draws stroke live then forwards to viewmodel on lift
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
@@ -217,6 +243,7 @@ private fun GestureImageSection(
                         },
                         onDragEnd = {
                             if (gesturePoints.size >= 4) {
+                                savedFirstStroke = gesturePoints.toList()
                                 onGestureCompleted(gesturePoints.toList(), containerSize)
                             }
                             gesturePoints.clear()
@@ -225,13 +252,24 @@ private fun GestureImageSection(
                     )
                 }
         ) {
+            if (awaitingXStroke && savedFirstStroke.size > 1) {
+                val path1 = Path().apply {
+                    moveTo(savedFirstStroke[0].x, savedFirstStroke[0].y)
+                    savedFirstStroke.drop(1).forEach { lineTo(it.x, it.y) }
+                }
+                drawPath(
+                    path  = path1,
+                    color = Color(0x55FF4040),
+                    style = Stroke(width = 3f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                )
+            }
             if (gesturePoints.size > 1) {
-                val path = Path().apply {
+                val path2 = Path().apply {
                     moveTo(gesturePoints[0].x, gesturePoints[0].y)
                     gesturePoints.drop(1).forEach { lineTo(it.x, it.y) }
                 }
                 drawPath(
-                    path  = path,
+                    path  = path2,
                     color = Color(0xBBFF4040),
                     style = Stroke(width = 4f, cap = StrokeCap.Round, join = StrokeJoin.Round)
                 )
@@ -240,7 +278,7 @@ private fun GestureImageSection(
     }
 
     Text(
-        "Draw a rectangle on the image to crop",
+        "Draw a rectangle on the image to crop  •  Draw an X to erase",
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
