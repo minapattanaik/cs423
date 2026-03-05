@@ -23,8 +23,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlin.math.sqrt
 import kotlinx.coroutines.withContext
+import kotlin.math.sqrt
 import java.io.File
 import java.io.FileOutputStream
 
@@ -41,7 +41,7 @@ data class ImageUiState(
     val isErasing: Boolean = false,
     val lastGestureLabel: String? = null,
     val canUndo: Boolean = false,
-    /** waits for second stroke to make x*/
+    /** true while the VM is holding stroke 1 and waiting for the X second stroke */
     val awaitingXStroke: Boolean = false
 )
 
@@ -53,7 +53,7 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
     private val ctx get() = getApplication<Application>().applicationContext
     private val undoStack = ArrayDeque<Bitmap>()
 
-    /** holds first stroke's position while waiting for second stroke */
+    /** holds first stroke's screen points while waiting for second stroke */
     private var storedStroke1: List<Offset>? = null
 
     fun processImage(uri: Uri) {
@@ -99,10 +99,12 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
      * called after stroke completion
      *
      * single stroke: tries to recognize stroke
-     *    - if recognized, handle as rectangle or diagonal. else, discard
+     *    - recognized as rectangle → handle immediately
+     *    - diagonal but unrecognized → store as stroke 1, set awaitingXStroke
+     *    - not a diagonal → discard
      *
-     * two-stroke: concats stored stroke with incoming stroke and tries combined recognition
-     *     - if recognized, handle. else, discard
+     * two-stroke path: concatenates stored stroke with incoming and tries combined recognition
+     *    - recognized as x → handle. else discard
      */
     fun onGestureCompleted(points: List<Offset>, containerSize: IntSize, bitmap: Bitmap) {
         if (points.size < 4) return
@@ -112,7 +114,7 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
         Log.d("Gesture", "recognized=$name score=${"%.2f".format(score)} pts=${points.size}")
         _uiState.value = _uiState.value.copy(lastGestureLabel = "$name (${"%.2f".format(score)})")
 
-        if (name == "rectangle" && score >= 0.32f) {
+        if (name == "rectangle" && score >= 0.25f) {
             storedStroke1 = null
             _uiState.value = _uiState.value.copy(awaitingXStroke = false)
             handleRecognizedGesture(name, points, containerSize, bitmap)
@@ -145,7 +147,8 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * returns true if [points] traces a roughly straight line
+     * returns true if [points] traces a roughly straight line.
+     * ratio = bounding-box diagonal / path length: diagonal ≈ 1.0, closed shapes << 1.0
      */
     private fun isLikelyDiagonal(points: List<Offset>): Boolean {
         if (points.size < 4) return false
@@ -215,43 +218,36 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
         val rgb = Mat()
         Imgproc.cvtColor(mat, rgb, Imgproc.COLOR_RGBA2RGB)
 
-        // clamp to image bounds
         val l = region.left.coerceIn(0, rgb.cols() - 2)
         val t = region.top.coerceIn(0, rgb.rows() - 2)
         val w = region.width().coerceIn(1, rgb.cols() - l)
         val h = region.height().coerceIn(1, rgb.rows() - t)
         val cvRect = org.opencv.core.Rect(l, t, w, h)
 
-        // GrabCut to find the object mask
         val mask    = Mat(rgb.size(), CvType.CV_8UC1, Scalar(Imgproc.GC_BGD.toDouble()))
         val bgModel = Mat()
         val fgModel = Mat()
         Imgproc.grabCut(rgb, mask, cvRect, bgModel, fgModel, 10, Imgproc.GC_INIT_WITH_RECT)
 
-        // combine definite + probable foreground into one mask
         val fgMask   = Mat()
         val prFgMask = Mat()
         Core.compare(mask, Scalar(Imgproc.GC_FGD.toDouble()),    fgMask,   Core.CMP_EQ)
         Core.compare(mask, Scalar(Imgproc.GC_PR_FGD.toDouble()), prFgMask, Core.CMP_EQ)
         Core.bitwise_or(fgMask, prFgMask, fgMask)
 
-        // dilate mask slightly to catch edge fringe pixels
         val kernel = Imgproc.getStructuringElement(
             Imgproc.MORPH_ELLIPSE, org.opencv.core.Size(3.0, 3.0)
         )
         Imgproc.dilate(fgMask, fgMask, kernel)
 
-        // fill erased region with surrounding background
         val inpainted = Mat()
         Photo.inpaint(rgb, fgMask, inpainted, 15.0, Photo.INPAINT_TELEA)
 
-        // convert back to bitmap
         val result = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
         val rgba = Mat()
         Imgproc.cvtColor(inpainted, rgba, Imgproc.COLOR_RGB2RGBA)
         Utils.matToBitmap(rgba, result)
 
-        // cleanup
         listOf(mat, rgb, mask, bgModel, fgModel, fgMask, prFgMask, inpainted, rgba, kernel)
             .forEach { it.release() }
 

@@ -86,7 +86,6 @@ fun ImagePipelineScreen(vm: ImageViewModel = viewModel()) {
         }
     }
 
-    // react to crop requests sent from viewmodel
     val pendingCrop = state.pendingCropRequest
     LaunchedEffect(pendingCrop) {
         if (pendingCrop != null) {
@@ -252,6 +251,7 @@ private fun GestureImageSection(
                     )
                 }
         ) {
+            // dim remnant of stroke 1 while waiting for X second stroke
             if (awaitingXStroke && savedFirstStroke.size > 1) {
                 val path1 = Path().apply {
                     moveTo(savedFirstStroke[0].x, savedFirstStroke[0].y)
@@ -263,6 +263,7 @@ private fun GestureImageSection(
                     style = Stroke(width = 3f, cap = StrokeCap.Round, join = StrokeJoin.Round)
                 )
             }
+            // current stroke being drawn
             if (gesturePoints.size > 1) {
                 val path2 = Path().apply {
                     moveTo(gesturePoints[0].x, gesturePoints[0].y)
