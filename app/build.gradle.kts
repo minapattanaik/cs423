@@ -51,6 +51,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.navigation.compose)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -67,6 +68,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx.v284) // same as above
     implementation(libs.android.image.cropper) // android-image-cropper, for cropping function. replaced uCrop
     implementation(libs.gpuimage) // gpuimage, blur and sharpen
+    implementation("androidx.navigation:navigation-compose:2.7.7") // navigation for ui
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2") // kotlin coroutine for background processes
     //implementation(project(":opencv")) // opencv -- LOOK AT README FOR INSTRUCTIONS
     implementation("org.opencv:opencv:4.10.0")
