@@ -114,7 +114,7 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
         Log.d("Gesture", "recognized=$name score=${"%.2f".format(score)} pts=${points.size}")
         _uiState.value = _uiState.value.copy(lastGestureLabel = "$name (${"%.2f".format(score)})")
 
-        if (name == "rectangle" && score >= 0.25f) {
+        if (name == "rectangle" && score >= 0.45f) {
             storedStroke1 = null
             _uiState.value = _uiState.value.copy(awaitingXStroke = false)
             handleRecognizedGesture(name, points, containerSize, bitmap)
@@ -140,8 +140,10 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
                 awaitingXStroke  = false
             )
             storedStroke1 = null
-            if (name2 == "x" && score2 >= 0.13f) {
-                handleRecognizedGesture(name2, combined, containerSize, bitmap)
+            // bug fixing for too strict x threshold -- since stroke 1 was already validated
+            // fire erase whenever combined shape scores well enough
+            if (score2 >= 0.13f) {
+                handleRecognizedGesture("x", combined, containerSize, bitmap)
             }
         }
     }

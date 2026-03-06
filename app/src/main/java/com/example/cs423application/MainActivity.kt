@@ -171,7 +171,7 @@ private fun ImagePickerSection(onPick: () -> Unit) {
 
 @Composable
 private fun SourceImagePreview(uri: Uri) {
-    val imageHeight = (LocalConfiguration.current.screenHeightDp * 0.65f).dp
+    val imageHeight = (LocalConfiguration.current.screenHeightDp * 0.50f).dp
     Text("Loaded via Coil", style = MaterialTheme.typography.labelSmall)
     AsyncImage(
         model              = uri,
@@ -202,7 +202,7 @@ private fun GestureImageSection(
         style = MaterialTheme.typography.labelSmall
     )
 
-    val imageHeight = (LocalConfiguration.current.screenHeightDp * 0.65f).dp
+    val imageHeight = (LocalConfiguration.current.screenHeightDp * 0.50f).dp
     var containerSize    by remember { mutableStateOf(IntSize.Zero) }
     val gesturePoints     = remember { mutableStateListOf<Offset>() }
     var savedFirstStroke by remember { mutableStateOf<List<Offset>>(emptyList()) }
@@ -251,7 +251,7 @@ private fun GestureImageSection(
                     )
                 }
         ) {
-            // dim remnant of stroke 1 while waiting for X second stroke
+            // stored stroke 1 remnant while waiting for X second stroke
             if (awaitingXStroke && savedFirstStroke.size > 1) {
                 val path1 = Path().apply {
                     moveTo(savedFirstStroke[0].x, savedFirstStroke[0].y)
@@ -259,8 +259,8 @@ private fun GestureImageSection(
                 }
                 drawPath(
                     path  = path1,
-                    color = Color(0x55FF4040),
-                    style = Stroke(width = 3f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                    color = Color(0xCCFF6600),
+                    style = Stroke(width = 8f, cap = StrokeCap.Round, join = StrokeJoin.Round)
                 )
             }
             // current stroke being drawn
@@ -271,8 +271,8 @@ private fun GestureImageSection(
                 }
                 drawPath(
                     path  = path2,
-                    color = Color(0xBBFF4040),
-                    style = Stroke(width = 4f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                    color = Color(0xFFFF2020.toInt()),
+                    style = Stroke(width = 8f, cap = StrokeCap.Round, join = StrokeJoin.Round)
                 )
             }
         }
