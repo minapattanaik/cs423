@@ -7,8 +7,6 @@ data class GPoint(val x: Float, val y: Float)
 private data class PointCloud(val name: String, val points: List<GPoint>)
 
 /**
- * $P Point-Cloud Recognizer (Vatavu, Anthony, Wobbrock — ICMI 2012).
- *
  * $P point-cloud recognizer
  * implements pipeline as follows:
  *      1. resample (N points along path)
@@ -40,7 +38,10 @@ object PDollarRecognizer {
             PointCloud("rectangle", prepare(rectangleRaw(clockwise = false, height = 0.5f))),
             // X gesture
             PointCloud("x",         prepare(xRaw(leftToRight = true))),
-            PointCloud("x",         prepare(xRaw(leftToRight = false)))
+            PointCloud("x",         prepare(xRaw(leftToRight = false))),
+            // arrow gestures (dir inferred from raw points)
+            PointCloud("arrow",     prepare(arrowRaw(rightPointing = true))),
+            PointCloud("arrow",     prepare(arrowRaw(rightPointing = false)))
         )
     }
 
@@ -191,6 +192,30 @@ object PDollarRecognizer {
         } else {
             for (i in 0..s) { val t = i.toFloat() / s; raw.add(GPoint(1f - t, t)) }
             for (i in 0..s) { val t = i.toFloat() / s; raw.add(GPoint(t,      t)) }
+        }
+        return raw
+    }
+
+    /**
+     * arrow gesture raw point sequence
+     * line horizontal, then upper barb back to tip, then lower barb
+     * [rightPointing] = true  -> ->  (line l->r, arrowhead at right)
+     * [rightPointing] = false -> <-  (line r->l, arrowhead at left)
+     */
+    private fun arrowRaw(rightPointing: Boolean): List<GPoint> {
+        val raw = mutableListOf<GPoint>()
+        val s = 10
+        val b = 4
+        if (rightPointing) {
+            for (i in 0..s) raw.add(GPoint(i.toFloat() / s, 0.5f))
+            for (i in 1..b) raw.add(GPoint(1f - i * 0.08f, 0.5f - i * 0.08f))
+            for (i in b downTo 1) raw.add(GPoint(1f - i * 0.08f, 0.5f - i * 0.08f))
+            for (i in 1..b) raw.add(GPoint(1f - i * 0.08f, 0.5f + i * 0.08f))
+        } else {
+            for (i in 0..s) raw.add(GPoint(1f - i.toFloat() / s, 0.5f))
+            for (i in 1..b) raw.add(GPoint(i * 0.08f, 0.5f - i * 0.08f))
+            for (i in b downTo 1) raw.add(GPoint(i * 0.08f, 0.5f - i * 0.08f))
+            for (i in 1..b) raw.add(GPoint(i * 0.08f, 0.5f + i * 0.08f))
         }
         return raw
     }

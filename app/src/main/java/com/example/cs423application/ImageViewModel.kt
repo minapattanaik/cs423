@@ -56,7 +56,16 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
     /** holds first stroke's screen points while waiting for second stroke */
     private var storedStroke1: List<Offset>? = null
 
+    /**
+     * Last rectangle-gesture region (image-pixel coordinates).
+     * Set when a rectangle gesture is drawn; used as the target region for
+     * blur/sharpen if an arrow is drawn afterward.  Cleared on new image load
+     * or after the crop result is received (bitmap has changed).
+     */
+    private var lastRectRegion: android.graphics.Rect? = null
+
     fun processImage(uri: Uri) {
+        lastRectRegion = null
         _uiState.value = ImageUiState(sourceUri = uri, isProcessing = true)
         viewModelScope.launch {
             try {
@@ -121,6 +130,14 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
+        // single-stroke complete arrow (needs higher confidence)
+        if (name == "arrow" && score >= 0.40f && isLikelyArrow(points)) {
+            storedStroke1 = null
+            _uiState.value = _uiState.value.copy(awaitingXStroke = false)
+            handleArrowGesture(points, containerSize, bitmap)
+            return
+        }
+
         val prev = storedStroke1
         if (prev == null) {
             if (isLikelyDiagonal(points)) {
@@ -140,10 +157,13 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
                 awaitingXStroke  = false
             )
             storedStroke1 = null
-            // bug fixing for too strict x threshold -- since stroke 1 was already validated
-            // fire erase whenever combined shape scores well enough
             if (score2 >= 0.13f) {
-                handleRecognizedGesture("x", combined, containerSize, bitmap)
+                // arrow priority: combined arrowhead + line (either order) scores as "arrow"
+                if (name2 == "arrow") {
+                    handleArrowGesture(combined, containerSize, bitmap)
+                } else {
+                    handleRecognizedGesture("x", combined, containerSize, bitmap)
+                }
             }
         }
     }
@@ -179,6 +199,7 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
         val currentBitmap = _uiState.value.correctedBitmap ?: return
         when (name) {
             "rectangle" -> {
+                lastRectRegion = cropRect
                 Log.d("Gesture", "crop rect px: (${cropRect.left},${cropRect.top})-" +
                     "(${cropRect.right},${cropRect.bottom}) in ${bitmap.width}×${bitmap.height}")
                 viewModelScope.launch {
@@ -261,6 +282,7 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onCropResult(uri: Uri) {
+        lastRectRegion = null
         _uiState.value = _uiState.value.copy(isProcessing = true, savedFileName = null)
         viewModelScope.launch {
             try {
@@ -283,6 +305,160 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         }
+    }
+
+    /**
+     * returns true when stroke is horizontal & wide enough to be arrow gesture
+     */
+    private fun isLikelyArrow(points: List<Offset>): Boolean {
+        if (points.size < 4) return false
+        val minX = points.minOf { it.x }
+        val maxX = points.maxOf { it.x }
+        val minY = points.minOf { it.y }
+        val maxY = points.maxOf { it.y }
+        val width  = maxX - minX
+        val height = maxY - minY
+        return width > 80f && width > height * 2f
+    }
+
+    /**
+     * determines blur/sharpen direction & strength from stroke
+     * dir: endX > startX = right, otherwise left
+     * strength: euclidean distance/width
+     */
+    private fun handleArrowGesture(
+        points: List<Offset>,
+        containerSize: IntSize,
+        bitmap: Bitmap
+    ) {
+        val startX = points.first().x
+        val startY = points.first().y
+        val endX   = points.last().x
+        val endY   = points.last().y
+
+        val direction = if (endX >= startX) "right" else "left"
+
+        val dx       = endX - startX
+        val dy       = endY - startY
+        val arrowLen = sqrt(dx * dx + dy * dy)
+        val strength = (arrowLen / containerSize.width).coerceIn(0f, 1f)
+
+        Log.d("Gesture", "arrow dir=$direction strength=${"%.2f".format(strength)}")
+
+        val currentBitmap = _uiState.value.correctedBitmap ?: return
+
+        // use last rect region if still valid
+        val region = lastRectRegion?.takeIf { r ->
+            r.left   >= 0 && r.top    >= 0 &&
+            r.right  <= currentBitmap.width &&
+            r.bottom <= currentBitmap.height &&
+            r.width() > 0 && r.height() > 0
+        }
+
+        launchBlurSharpen(direction, strength, region, currentBitmap)
+    }
+
+    private fun launchBlurSharpen(
+        direction: String,
+        strength: Float,
+        region: android.graphics.Rect?,
+        bitmap: Bitmap
+    ) {
+        _uiState.value = _uiState.value.copy(isErasing = true, error = null)
+        viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    if (direction == "left") blurRegion(bitmap, region, strength)
+                    else                     sharpenRegion(bitmap, region, strength)
+                }
+                undoStack.addLast(bitmap)
+                _uiState.value = _uiState.value.copy(
+                    correctedBitmap = result,
+                    isErasing       = false,
+                    canUndo         = true
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    isErasing = false,
+                    error     = "Filter failed: ${e.message}"
+                )
+            }
+        }
+    }
+
+    /**
+     * applies gaussian blur (kernel size = 3 + strength x 20)
+     */
+    private fun blurRegion(src: Bitmap, region: android.graphics.Rect?, strength: Float): Bitmap {
+        val mat = Mat()
+        Utils.bitmapToMat(src, mat)
+
+        val rgb = Mat()
+        Imgproc.cvtColor(mat, rgb, Imgproc.COLOR_RGBA2RGB)
+
+        val kRaw = (3 + strength * 20).toInt()
+        val k    = if (kRaw % 2 == 0) kRaw + 1 else kRaw
+        val kSz  = org.opencv.core.Size(k.toDouble(), k.toDouble())
+
+        if (region != null) {
+            val roi     = org.opencv.core.Rect(region.left, region.top, region.width(), region.height())
+            val submat  = rgb.submat(roi)
+            Imgproc.GaussianBlur(submat, submat, kSz, 0.0)
+            submat.release()
+        } else {
+            Imgproc.GaussianBlur(rgb, rgb, kSz, 0.0)
+        }
+
+        val rgba   = Mat()
+        Imgproc.cvtColor(rgb, rgba, Imgproc.COLOR_RGB2RGBA)
+        val result = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
+        Utils.matToBitmap(rgba, result)
+
+        listOf(mat, rgb, rgba).forEach { it.release() }
+        return result
+    }
+
+    /**
+     * applies a variable-strength sharpening convolution to [region] (or the full image).
+     *
+     * kernel (brightness-preserving, sums to 1):
+     *   [  0      -s      0  ]
+     *   [ -s   1+4s      -s  ]
+     *   [  0      -s      0  ]
+     * s ranges from 0.1 (min) to 1.0 (max strength).
+     */
+    private fun sharpenRegion(src: Bitmap, region: android.graphics.Rect?, strength: Float): Bitmap {
+        val mat = Mat()
+        Utils.bitmapToMat(src, mat)
+
+        val rgb = Mat()
+        Imgproc.cvtColor(mat, rgb, Imgproc.COLOR_RGBA2RGB)
+
+        val s      = (strength * 2f).coerceIn(0.1f, 2f)
+        val kernel = Mat(3, 3, org.opencv.core.CvType.CV_32F)
+        kernel.put(
+            0, 0,
+            0.0,            (-s).toDouble(),  0.0,
+            (-s).toDouble(), (1.0 + 4.0 * s), (-s).toDouble(),
+            0.0,            (-s).toDouble(),  0.0
+        )
+
+        if (region != null) {
+            val roi    = org.opencv.core.Rect(region.left, region.top, region.width(), region.height())
+            val submat = rgb.submat(roi)
+            Imgproc.filter2D(submat, submat, -1, kernel)
+            submat.release()
+        } else {
+            Imgproc.filter2D(rgb, rgb, -1, kernel)
+        }
+
+        val rgba   = Mat()
+        Imgproc.cvtColor(rgb, rgba, Imgproc.COLOR_RGB2RGBA)
+        val result = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
+        Utils.matToBitmap(rgba, result)
+
+        listOf(mat, rgb, rgba, kernel).forEach { it.release() }
+        return result
     }
 
     /**
