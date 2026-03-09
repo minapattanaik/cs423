@@ -68,6 +68,7 @@ dependencies {
     implementation(libs.android.image.cropper) // android-image-cropper, for cropping function. replaced uCrop
     implementation(libs.gpuimage) // gpuimage, blur and sharpen
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2") // kotlin coroutine for background processes
-    implementation(project(":opencv")) // opencv -- LOOK AT README FOR INSTRUCTIONS
-    // commented out for time being; breaks current pipeline
+    //implementation(project(":opencv")) // opencv -- LOOK AT README FOR INSTRUCTIONS
+    implementation("org.opencv:opencv:4.10.0")
+// commented out for time being; breaks current pipeline
 }

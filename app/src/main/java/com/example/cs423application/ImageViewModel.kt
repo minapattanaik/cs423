@@ -179,14 +179,14 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
         val minY = points.minOf { it.y }
         val maxY = points.maxOf { it.y }
         val bboxDiag = sqrt((maxX - minX) * (maxX - minX) + (maxY - minY) * (maxY - minY))
-        if (bboxDiag < 1f) return false
+        if (bboxDiag < 25f) return false
         var pathLen = 0f
         for (i in 1 until points.size) {
             val dx = points[i].x - points[i - 1].x
             val dy = points[i].y - points[i - 1].y
             pathLen += sqrt(dx * dx + dy * dy)
         }
-        return bboxDiag / pathLen >= 0.7f
+        return bboxDiag / pathLen >= 0.55f
     }
 
     private fun handleRecognizedGesture(
@@ -221,7 +221,7 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 val erased = withContext(Dispatchers.IO) {
-                    eraseRegionWithGrabCut(bitmap, region)
+                    eraseRegion(bitmap, region)
                 }
                 undoStack.addLast(bitmap)
                 _uiState.value = _uiState.value.copy(correctedBitmap = erased, isErasing = false, canUndo = true)
@@ -233,50 +233,113 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+    private fun eraseRegion(src: Bitmap, region: Rect): Bitmap {
+        val maxDim = 500f
+        val scaleFactor = minOf(maxDim / src.width, maxDim / src.height, 1.0f)
 
-    private fun eraseRegionWithGrabCut(src: Bitmap, region: Rect): Bitmap {
+        val scaledW = (src.width  * scaleFactor).toInt().coerceAtLeast(1)
+        val scaledH = (src.height * scaleFactor).toInt().coerceAtLeast(1)
+        val scaledSrc = Bitmap.createScaledBitmap(src, scaledW, scaledH, true)
+
+        val scaledRegion = Rect(
+            (region.left   * scaleFactor).toInt().coerceIn(0, scaledW - 1),
+            (region.top    * scaleFactor).toInt().coerceIn(0, scaledH - 1),
+            (region.right  * scaleFactor).toInt().coerceIn(0, scaledW),
+            (region.bottom * scaleFactor).toInt().coerceIn(0, scaledH)
+        )
+
         val mat = Mat()
-        Utils.bitmapToMat(src, mat)
-
+        Utils.bitmapToMat(scaledSrc, mat)
         val rgb = Mat()
         Imgproc.cvtColor(mat, rgb, Imgproc.COLOR_RGBA2RGB)
 
-        val l = region.left.coerceIn(0, rgb.cols() - 2)
-        val t = region.top.coerceIn(0, rgb.rows() - 2)
-        val w = region.width().coerceIn(1, rgb.cols() - l)
-        val h = region.height().coerceIn(1, rgb.rows() - t)
-        val cvRect = org.opencv.core.Rect(l, t, w, h)
+        // convert to HSV for better color segmentation
+        val hsv = Mat()
+        Imgproc.cvtColor(rgb, hsv, Imgproc.COLOR_RGB2HSV)
 
-        val mask    = Mat(rgb.size(), CvType.CV_8UC1, Scalar(Imgproc.GC_BGD.toDouble()))
-        val bgModel = Mat()
-        val fgModel = Mat()
-        Imgproc.grabCut(rgb, mask, cvRect, bgModel, fgModel, 10, Imgproc.GC_INIT_WITH_RECT)
+        // sample center color of the region
+        val centerX = ((scaledRegion.left + scaledRegion.right)  / 2).coerceIn(0, scaledW - 1)
+        val centerY = ((scaledRegion.top  + scaledRegion.bottom) / 2).coerceIn(0, scaledH - 1)
+        val centerColor = hsv.get(centerY, centerX) ?: doubleArrayOf(0.0, 0.0, 0.0)
 
-        val fgMask   = Mat()
-        val prFgMask = Mat()
-        Core.compare(mask, Scalar(Imgproc.GC_FGD.toDouble()),    fgMask,   Core.CMP_EQ)
-        Core.compare(mask, Scalar(Imgproc.GC_PR_FGD.toDouble()), prFgMask, Core.CMP_EQ)
-        Core.bitwise_or(fgMask, prFgMask, fgMask)
-
-        val kernel = Imgproc.getStructuringElement(
-            Imgproc.MORPH_ELLIPSE, org.opencv.core.Size(3.0, 3.0)
+        // build mask by color similarity to center
+        val colorMask = Mat()
+        val tolerance = 40.0
+        Core.inRange(
+            hsv,
+            Scalar(
+                (centerColor[0] - tolerance).coerceAtLeast(0.0),
+                (centerColor[1] - 80.0).coerceAtLeast(0.0),
+                (centerColor[2] - 80.0).coerceAtLeast(0.0)
+            ),
+            Scalar(
+                (centerColor[0] + tolerance).coerceAtMost(180.0),
+                (centerColor[1] + 80.0).coerceAtMost(255.0),
+                (centerColor[2] + 80.0).coerceAtMost(255.0)
+            ),
+            colorMask
         )
+
+        // limit mask to the drawn region only
+        val regionMask = Mat.zeros(rgb.size(), CvType.CV_8UC1)
+        val roiRect    = org.opencv.core.Rect(
+            scaledRegion.left,
+            scaledRegion.top,
+            (scaledRegion.right  - scaledRegion.left).coerceAtLeast(1),
+            (scaledRegion.bottom - scaledRegion.top).coerceAtLeast(1)
+        )
+        val roi = regionMask.submat(roiRect)
+        roi.setTo(Scalar(255.0))
+        roi.release()
+
+        val fgMask = Mat()
+        Core.bitwise_and(colorMask, regionMask, fgMask)
+
+        // morphology to clean up
+        val kernel = Imgproc.getStructuringElement(
+            Imgproc.MORPH_ELLIPSE, org.opencv.core.Size(5.0, 5.0)
+        )
+        Imgproc.morphologyEx(fgMask, fgMask, Imgproc.MORPH_CLOSE, kernel)
         Imgproc.dilate(fgMask, fgMask, kernel)
 
+        // scale mask to full res
+        val fullMask = Mat()
+        Imgproc.resize(
+            fgMask, fullMask,
+            org.opencv.core.Size(src.width.toDouble(), src.height.toDouble()),
+            0.0, 0.0, Imgproc.INTER_NEAREST
+        )
+        Imgproc.threshold(fullMask, fullMask, 127.0, 255.0, Imgproc.THRESH_BINARY)
+
+        // inpaint on full res
+        val fullMat = Mat()
+        Utils.bitmapToMat(src, fullMat)
+        val fullRgb = Mat()
+        Imgproc.cvtColor(fullMat, fullRgb, Imgproc.COLOR_RGBA2RGB)
+
+        val inpaintRadius = (minOf(region.width(), region.height()) * 0.08f)
+            .coerceIn(15f, 40f).toDouble()
         val inpainted = Mat()
-        Photo.inpaint(rgb, fgMask, inpainted, 15.0, Photo.INPAINT_TELEA)
+        Photo.inpaint(fullRgb, fullMask, inpainted, inpaintRadius, Photo.INPAINT_TELEA)
 
         val result = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
-        val rgba = Mat()
+        val rgba   = Mat()
         Imgproc.cvtColor(inpainted, rgba, Imgproc.COLOR_RGB2RGBA)
+
+        val channels = mutableListOf<Mat>()
+        Core.split(rgba, channels)
+        channels[3].setTo(Scalar(255.0))
+        Core.merge(channels, rgba)
+        channels.forEach { it.release() }
+
         Utils.matToBitmap(rgba, result)
 
-        listOf(mat, rgb, mask, bgModel, fgModel, fgMask, prFgMask, inpainted, rgba, kernel)
-            .forEach { it.release() }
+        listOf(mat, rgb, hsv, colorMask, regionMask, fgMask, kernel,
+            fullMask, fullMat, fullRgb, inpainted, rgba).forEach { it.release() }
+        scaledSrc.recycle()
 
         return result
     }
-
     fun onCropRequestHandled() {
         _uiState.value = _uiState.value.copy(pendingCropRequest = null)
     }
