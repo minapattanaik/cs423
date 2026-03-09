@@ -145,7 +145,7 @@ fun ImagePipelineScreen(vm: ImageViewModel = viewModel()) {
                 }
                 if (state.canUndo) {
                     Button(onClick = { vm.undo() }) {
-                        Text("Undo Erase")
+                        Text("Undo")
                     }
                 }
                 Button(onClick = { vm.saveImage() }) {
@@ -279,7 +279,7 @@ private fun GestureImageSection(
     }
 
     Text(
-        "Draw a rectangle on the image to crop  •  Draw an X to erase",
+        "Draw rectangle to crop  •  Draw X to erase  •  \u2190 to blur  •  \u2192 to sharpen",
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
