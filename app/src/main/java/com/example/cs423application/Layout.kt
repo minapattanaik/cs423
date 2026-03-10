@@ -89,9 +89,9 @@ fun homescreen(navController: NavController) {
     ),
     modifier = Modifier
         .fillMaxWidth()
-        .padding(start = 50.dp, top = 730.dp, end = 50.dp)  // ← here
+        .padding(start = 50.dp, top = 750.dp, end = 50.dp)  // ← here
     ) {
-        Text("GET STARTED", fontSize = 20.sp)
+        Text("GET STARTED", fontSize = 25.sp)
     }
 
 //@Composable
