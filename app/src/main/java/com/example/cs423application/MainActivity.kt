@@ -64,7 +64,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             CS423ApplicationTheme {
-                ImagePipelineScreen()
+                MyApp()
             }
         }
     }

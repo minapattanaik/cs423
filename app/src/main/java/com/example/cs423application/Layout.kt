@@ -1,5 +1,6 @@
 package com.example.cs423application
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -10,6 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -20,6 +23,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -30,7 +34,7 @@ fun MyApp() {
     val navController = rememberNavController()
     NavHost(navController = navController, startDestination = "home") {
         composable("home") { homescreen(navController) }
-        composable("upload") { uploadscreen() }
+        composable("pipeline") { ImagePipelineScreen() }
     }
 }
 @Composable
@@ -76,27 +80,31 @@ fun homescreen(navController: NavController) {
         contentDescription = stringResource(id = R.string.taglinedescription)
 
     )
-//    Button(
-//        onClick = {navController.navigate("upload") },
-//        modifier = Modifier
-//            .padding(start = 30.dp, top = 300.dp, end = 30.dp, bottom = 300.dp),    // Moves it up from the very edge
-//
-//    ) {
-//        Text("Click Me")
+    OutlinedButton(
+            onClick = { navController.navigate("pipeline") },
+    border = BorderStroke(1.dp, Color(0xFF000000)),
+    colors = ButtonDefaults.outlinedButtonColors(
+        containerColor = Color(0xFFBCC9EB),
+        contentColor = Color(0xFF000000)
+    ),
+    modifier = Modifier
+        .fillMaxWidth()
+        .padding(start = 50.dp, top = 730.dp, end = 50.dp)  // ← here
+    ) {
+        Text("GET STARTED", fontSize = 20.sp)
+    }
+
+//@Composable
+//fun uploadscreen(){
+//    Box(modifier = Modifier.fillMaxSize()) {
+//        Image(
+//            painter = painterResource(id = R.drawable.back),
+//            contentDescription = null, // Set to null for decorative backgrounds
+//            modifier = Modifier.fillMaxSize(),
+//            contentScale = ContentScale.Crop // Ensures the image fills the screen
+//        )
 //    }
 }
-@Composable
-fun uploadscreen(){
-    Box(modifier = Modifier.fillMaxSize()) {
-        Image(
-            painter = painterResource(id = R.drawable.back),
-            contentDescription = null, // Set to null for decorative backgrounds
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop // Ensures the image fills the screen
-        )
-    }
-}
-
 
 @Preview
 @Composable
