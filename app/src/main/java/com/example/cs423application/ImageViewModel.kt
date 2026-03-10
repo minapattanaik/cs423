@@ -157,13 +157,11 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
                 awaitingXStroke  = false
             )
             storedStroke1 = null
-            if (score2 >= 0.13f) {
-                // arrow priority: combined arrowhead + line (either order) scores as "arrow"
-                if (name2 == "arrow") {
-                    handleArrowGesture(combined, containerSize, bitmap)
-                } else {
-                    handleRecognizedGesture("x", combined, containerSize, bitmap)
-                }
+            // arrow priority: combined arrowhead + line (either order) scores as "arrow"
+            if (name2 == "arrow" && score2 >= 0.2f) {
+                handleArrowGesture(combined, containerSize, bitmap)
+            } else if (name2 != "arrow" && score2 >= 0.2f) {
+                handleRecognizedGesture("x", combined, containerSize, bitmap)
             }
         }
     }
@@ -346,6 +344,7 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onCropResult(uri: Uri) {
         lastRectRegion = null
+        val preCropBitmap = _uiState.value.correctedBitmap
         _uiState.value = _uiState.value.copy(isProcessing = true, savedFileName = null)
         viewModelScope.launch {
             try {
@@ -357,9 +356,11 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
                             ?.use { stream -> BitmapFactory.decodeStream(stream) }
                     } ?: error("Cannot decode cropped image")
                 }
+                if (preCropBitmap != null) undoStack.addLast(preCropBitmap)
                 _uiState.value = _uiState.value.copy(
                     correctedBitmap = bitmap,
-                    isProcessing    = false
+                    isProcessing    = false,
+                    canUndo         = undoStack.isNotEmpty()
                 )
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
