@@ -2,4 +2,5 @@
     <string name="app_name">CS 423 Application</string>
     <string name="logo_contentdescription">logo for image editing app, blue IMGX text</string>
     <string name="taglinedescription">image editing your way text with stars surrounding it</string>
+    <string name="polaroiddescription">polaroid with jellyfish image</string>
 </resources>
