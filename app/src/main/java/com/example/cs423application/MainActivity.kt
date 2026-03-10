@@ -11,14 +11,17 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -48,7 +51,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.canhub.cropper.CropImageContract
@@ -72,6 +79,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun ImagePipelineScreen(vm: ImageViewModel = viewModel()) {
+
     val state by vm.uiState.collectAsState()
 
     val pickerLauncher = rememberLauncherForActivityResult(
@@ -102,19 +110,30 @@ fun ImagePipelineScreen(vm: ImageViewModel = viewModel()) {
             vm.onCropRequestHandled()
         }
     }
-
-    Scaffold(modifier = Modifier.fillMaxSize()) { padding ->
+    Box(modifier = Modifier.fillMaxSize()) {
+        Image(
+            painter = painterResource(id = R.drawable.back),
+            contentDescription = null, // Set to null for decorative backgrounds
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop // Ensures the image fills the screen
+        )
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .padding(16.dp)
+                .background(Color.Transparent)
+                .systemBarsPadding()
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text("Image Pipeline", style = MaterialTheme.typography.headlineMedium)
+            verticalArrangement = Arrangement.spacedBy(12.dp),
 
+        ) {
+            Text(
+                text = "EDIT YOUR IMAGE",
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    fontWeight = FontWeight.Bold
+                )
+            )
             ImagePickerSection(onPick = { pickerLauncher.launch("image/*") })
 
             state.sourceUri?.let { uri ->
@@ -129,27 +148,35 @@ fun ImagePipelineScreen(vm: ImageViewModel = viewModel()) {
 
             state.correctedBitmap?.let { bmp ->
                 GestureImageSection(
-                    bitmap             = bmp,
-                    isErasing          = state.isErasing,
-                    awaitingXStroke    = state.awaitingXStroke,
+                    bitmap = bmp,
+                    isErasing = state.isErasing,
+                    awaitingXStroke = state.awaitingXStroke,
                     onGestureCompleted = { points, containerSize ->
                         vm.onGestureCompleted(points, containerSize, bmp)
                     }
                 )
-                state.lastGestureLabel?.let { label ->
-                    Text(
-                        "Recognized: $label",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.tertiary
-                    )
-                }
-                if (state.canUndo) {
-                    Button(onClick = { vm.undo() }) {
-                        Text("Undo")
+//                state.lastGestureLabel?.let { label ->
+//                    Text(
+//                        "Recognized: $label",
+//                        style = MaterialTheme.typography.labelSmall,
+//                        color = MaterialTheme.colorScheme.tertiary
+//                    )
+//                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (state.canUndo) {
+                        Button(onClick = { vm.undo() }) {
+                            Text("UNDO")
+                        }
                     }
-                }
-                Button(onClick = { vm.saveImage() }) {
-                    Text("Save Copy")
+                    Button(onClick = { vm.saveImage() }) {
+                        Text("SAVE COPY")
+                    }
                 }
             }
 
@@ -161,12 +188,13 @@ fun ImagePipelineScreen(vm: ImageViewModel = viewModel()) {
                 Text(msg, color = MaterialTheme.colorScheme.error)
             }
         }
+
     }
 }
 
 @Composable
 private fun ImagePickerSection(onPick: () -> Unit) {
-    Button(onClick = onPick) { Text("Pick Image") }
+    Button(onClick = onPick) { Text("UPLOAD IMAGE") }
 }
 
 @Composable
@@ -184,11 +212,11 @@ private fun SourceImagePreview(uri: Uri) {
 @Composable
 private fun ProcessingIndicator() {
     CircularProgressIndicator()
-    Text("Stage 2: fixing orientation…")
+    //Text("Stage 2: fixing orientation…")
 }
 
 /**
- * displays orientation-corrected bitmap with two stroke overlay
+ * displays orientation-corrected bitmap with two-stroke overlay
  */
 @Composable
 private fun GestureImageSection(
@@ -197,10 +225,10 @@ private fun GestureImageSection(
     awaitingXStroke: Boolean,
     onGestureCompleted: (points: List<Offset>, containerSize: IntSize) -> Unit
 ) {
-    Text(
-        "Stage 2 done: ${bitmap.width}×${bitmap.height} (orientation corrected)",
-        style = MaterialTheme.typography.labelSmall
-    )
+//    Text(
+//        "Stage 2 done: ${bitmap.width}×${bitmap.height} (orientation corrected)",
+//        style = MaterialTheme.typography.labelSmall
+//    )
 
     val imageHeight = (LocalConfiguration.current.screenHeightDp * 0.50f).dp
     var containerSize    by remember { mutableStateOf(IntSize.Zero) }
@@ -279,8 +307,11 @@ private fun GestureImageSection(
     }
 
     Text(
-        "Draw rectangle to crop  •  Draw X to erase  •  \u2190 to blur  •  \u2192 to sharpen",
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
+        "• Draw rectangle to crop •\n• Draw X to erase •\n • <-- to blur --> to sharpen •",
+        style = MaterialTheme.typography.labelMedium.copy(
+            fontSize = 15.sp,
+            lineHeight = 20.sp
+        ),
+        textAlign = TextAlign.Center
     )
 }
