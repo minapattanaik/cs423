@@ -41,10 +41,8 @@ app/src/main/java/com/example/cs423application/
 
 1. Clone the repo
 2. Open in Android Studio (Hedgehog or later)
-3. Make sure the OpenCV Android SDK is linked (the app/opencv/ module is included)
-4. Run on a physical device or emulator with API 29+
-
-If OpenCV is not linked, delete the folder and follow the below instructions:
+3. Follow the instructions below to set up OpenCV.
+   
 ### OpenCV Setup
 
 This project will use OpenCV for object selection. It must be added manually.
@@ -55,7 +53,7 @@ The steps to do so can be found below.
 Download the Android SDK from: https://opencv.org/releases/
 Choose the latest OpenCV Android SDK.
 
-#### a. Import OpenCV Module into Android Studio
+#### 2. Import OpenCV Module into Android Studio
 
 1. Extract the downloaded zip file.
 2. Open this project in Android Studio.
@@ -65,26 +63,33 @@ Choose the latest OpenCV Android SDK.
 File → New → Import Module
 ```
 
-#### b. Select the folder:
+#### 3. Select the folder:
 
 ```
-opencv-android-sdk/sdk/java
+opencv-4.x.x-android-sdk/sdk
 ```
+(.x.x will depend on the version you download.)
 
-#### c. Name the module:
+#### 4. Name the module:
 
 ```
 opencv
 ```
 
-#### d. Finish the import.
+#### 5. Finish the import.
 
-### 3. Verify Dependency
+#### 6. Verify Dependency
 
 Ensure the following line exists in `app/build.gradle.kts`:
 
 ```kotlin
 implementation(project(":opencv"))
+```
+
+Ensure the following line exists in `settings.gradle.kts`:
+
+```
+include(":opencv")
 ```
 
 ---
