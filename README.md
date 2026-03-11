@@ -39,8 +39,8 @@ app/src/main/java/com/example/cs423application/
 
 ## Setup
 
-1. Clone the repo
-2. Open in Android Studio (Hedgehog or later)
+1. Clone the repo.
+2. Open in Android Studio (Hedgehog or later).
 3. Follow the instructions below to set up OpenCV.
 
 ### OpenCV Setup
@@ -57,7 +57,7 @@ No download required. The Maven dependency is already active in `app/build.gradl
 implementation("org.opencv:opencv:4.10.0")
 ```
 
-And the local module lines in `settings.gradle.kts` are already commented out. Just sync and build — no further steps needed.
+And the local module lines in `settings.gradle.kts` are already commented out. Just sync and build; no further steps needed.
 
 ---
 
