@@ -42,60 +42,62 @@ app/src/main/java/com/example/cs423application/
 1. Clone the repo
 2. Open in Android Studio (Hedgehog or later)
 3. Follow the instructions below to set up OpenCV.
-   
+
 ### OpenCV Setup
 
-This project will use OpenCV for object selection. It must be added manually.
-The steps to do so can be found below.
+OpenCV is not included in the repo and must be added manually. Follow the steps below exactly.
 
 #### 1. Download OpenCV
 
 Download the Android SDK from: https://opencv.org/releases/
-Choose the latest OpenCV Android SDK.
+Choose the **OpenCV Android SDK** (not the iOS or source package).
 
-#### 2. Import OpenCV Module into Android Studio
+#### 2. Extract into the project root
 
-1. Extract the downloaded zip file.
-2. Open this project in Android Studio.
-3. Go to:
+Extract the downloaded zip **into the root of this project** (next to `app/`, `gradle/`, etc.).
 
+After extraction, your project root should contain a folder like:
 ```
-File → New → Import Module
+opencv-4.x.x-android-sdk/
+└── OpenCV-android-sdk/
+    └── sdk/
 ```
 
-#### 3. Select the folder:
+#### 3. Import the OpenCV module into Android Studio
 
+1. In Android Studio, go to `File → New → Import Module`
+2. Select the following folder (adjust version number to match your download):
 ```
-opencv-4.x.x-android-sdk/sdk
+opencv-4.x.x-android-sdk/OpenCV-android-sdk/sdk
 ```
-(.x.x will depend on the version you download.)
-
-#### 4. Name the module:
-
+3. When prompted for a module name, enter:
 ```
 opencv
 ```
+4. Click **Finish**.
 
-#### 5. Finish the import.
+#### 4. Configure `settings.gradle.kts`
 
-#### 6. Verify Dependency
-
-Ensure the following line exists in `app/build.gradle.kts`:
+Ensure both of these lines exist in `settings.gradle.kts`:
 
 ```kotlin
-implementation(project(":opencv"))
-```
-
-Ensure the following line exists in `settings.gradle.kts`:
-
-```
 include(":opencv")
+project(":opencv").projectDir = file("opencv-4.x.x-android-sdk/OpenCV-android-sdk/sdk")
 ```
 
----
+Replace `4.x.x` with your actual version number.
 
-### 4. Sync Project
+#### 5. Configure `app/build.gradle.kts`
 
-Click **Sync Gradle** and rebuild the project.
+In `app/build.gradle.kts`, **uncomment** the local module dependency and **comment out** the Maven one:
 
-If setup was successful, the project should compile without errors.
+```kotlin
+implementation(project(":opencv"))   // uncomment this
+// implementation("org.opencv:opencv:4.10.0")  // comment this out
+```
+
+#### 6. Sync and build
+
+Click **Sync Now** in the Gradle bar (or go to `File → Sync Project with Gradle Files`), then rebuild the project.
+
+If setup was successful, the project should compile without errors. **Minimum supported API level is 28.**
