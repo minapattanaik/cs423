@@ -24,5 +24,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "CS 423 Application"
 include(":app")
-include(":opencv")
-project(":opencv").projectDir = file("opencv-4.12.0-android-sdk/OpenCV-android-sdk/sdk")
+// Uncomment the two lines below if using the local OpenCV module instead of the Maven dependency.
+// See README for full setup instructions.
+// include(":opencv")
+// project(":opencv").projectDir = file("opencv-4.12.0-android-sdk/OpenCV-android-sdk/sdk")
