@@ -70,7 +70,7 @@ dependencies {
     implementation(libs.gpuimage) // gpuimage, blur and sharpen
     implementation("androidx.navigation:navigation-compose:2.7.7") // navigation for ui
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2") // kotlin coroutine for background processes
-    //implementation(project(":opencv")) // opencv -- LOOK AT README FOR INSTRUCTIONS
+    // opencv -- LOOK AT README FOR INSTRUCTIONS
     implementation("org.opencv:opencv:4.10.0")
 // commented out for time being; breaks current pipeline
 }
