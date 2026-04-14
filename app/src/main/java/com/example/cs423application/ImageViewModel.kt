@@ -118,12 +118,13 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
     fun onGestureCompleted(points: List<Offset>, containerSize: IntSize, bitmap: Bitmap) {
         if (points.size < 4) return
 
-        val gdPoints      = points.map { GPoint(it.x, it.y) }
+        val closedPoints  = closeGapIfNeeded(points)
+        val gdPoints      = closedPoints.map { GPoint(it.x, it.y) }
         val (name, score) = PDollarRecognizer.recognize(gdPoints)
         Log.d("Gesture", "recognized=$name score=${"%.2f".format(score)} pts=${points.size}")
         _uiState.value = _uiState.value.copy(lastGestureLabel = "$name (${"%.2f".format(score)})")
 
-        if (name == "rectangle" && score >= 0.45f) {
+        if (name == "rectangle" && score >= 0.38f) {
             storedStroke1 = null
             _uiState.value = _uiState.value.copy(awaitingXStroke = false)
             handleRecognizedGesture(name, points, containerSize, bitmap)
@@ -131,22 +132,28 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // single-stroke complete arrow (needs higher confidence)
-        if (name == "arrow" && score >= 0.40f && isLikelyArrow(points)) {
+        if (name == "arrow" && score >= 0.32f && isLikelyArrow(points)) {
             storedStroke1 = null
             _uiState.value = _uiState.value.copy(awaitingXStroke = false)
             handleArrowGesture(points, containerSize, bitmap)
             return
         }
 
+        // single-stroke X (looping/cursive/corner-connected) — skip plain diagonals
+        // which are valid first strokes of a two-stroke X
+        if (name == "x" && score >= 0.30f && !isLikelyDiagonal(closedPoints)) {
+            storedStroke1 = null
+            _uiState.value = _uiState.value.copy(awaitingXStroke = false)
+            handleRecognizedGesture("x", points, containerSize, bitmap)
+            return
+        }
+
         val prev = storedStroke1
         if (prev == null) {
-            if (isLikelyDiagonal(points)) {
-                storedStroke1 = points
-                _uiState.value = _uiState.value.copy(awaitingXStroke = true)
-                Log.d("Gesture", "stroke 1 stored, awaiting stroke 2")
-            } else {
-                Log.d("Gesture", "not a diagonal, discarding")
-            }
+            // store any unmatched stroke as potential first X stroke
+            storedStroke1 = points
+            _uiState.value = _uiState.value.copy(awaitingXStroke = true)
+            Log.d("Gesture", "stroke 1 stored, awaiting stroke 2")
         } else {
             val combined   = prev + points
             val combinedGd = combined.map { GPoint(it.x, it.y) }
@@ -158,12 +165,52 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
             )
             storedStroke1 = null
             // arrow priority: combined arrowhead + line (either order) scores as "arrow"
-            if (name2 == "arrow" && score2 >= 0.2f) {
+            if (name2 == "arrow" && score2 >= 0.15f) {
                 handleArrowGesture(combined, containerSize, bitmap)
-            } else if (name2 != "arrow" && score2 >= 0.2f) {
+            } else if (name2 != "arrow" && score2 >= 0.15f) {
                 handleRecognizedGesture("x", combined, containerSize, bitmap)
             }
         }
+    }
+
+    /**
+     * closes a near-complete shape by interpolating points across the gap between
+     * first and last point. skips diagonals/arrows (pathLen/bboxDiag < 2.0) and
+     * shapes too open to close confidently (gap/bboxDiag > 0.20)
+     */
+    private fun closeGapIfNeeded(points: List<Offset>): List<Offset> {
+        if (points.size < 4) return points
+        val minX = points.minOf { it.x }
+        val maxX = points.maxOf { it.x }
+        val minY = points.minOf { it.y }
+        val maxY = points.maxOf { it.y }
+        val bboxDiag = sqrt((maxX - minX) * (maxX - minX) + (maxY - minY) * (maxY - minY))
+        if (bboxDiag < 1f) return points
+
+        var pathLen = 0f
+        for (i in 1 until points.size) {
+            val dx = points[i].x - points[i - 1].x
+            val dy = points[i].y - points[i - 1].y
+            pathLen += sqrt(dx * dx + dy * dy)
+        }
+        if (pathLen / bboxDiag < 2.0f) return points
+
+        val dx  = points.first().x - points.last().x
+        val dy  = points.first().y - points.last().y
+        val gap = sqrt(dx * dx + dy * dy)
+        if (gap / bboxDiag > 0.20f) return points
+
+        val closed = points.toMutableList()
+        val steps  = 8
+        for (i in 1..steps) {
+            val t = i.toFloat() / steps
+            closed.add(Offset(
+                points.last().x + t * dx,
+                points.last().y + t * dy
+            ))
+        }
+        Log.d("Gesture", "gap closed: gap/bbox=${"%.2f".format(gap / bboxDiag)}")
+        return closed
     }
 
     /**
@@ -177,14 +224,14 @@ class ImageViewModel(application: Application) : AndroidViewModel(application) {
         val minY = points.minOf { it.y }
         val maxY = points.maxOf { it.y }
         val bboxDiag = sqrt((maxX - minX) * (maxX - minX) + (maxY - minY) * (maxY - minY))
-        if (bboxDiag < 25f) return false
+        if (bboxDiag < 12f) return false
         var pathLen = 0f
         for (i in 1 until points.size) {
             val dx = points[i].x - points[i - 1].x
             val dy = points[i].y - points[i - 1].y
             pathLen += sqrt(dx * dx + dy * dy)
         }
-        return bboxDiag / pathLen >= 0.55f
+        return bboxDiag / pathLen >= 0.35f
     }
 
     private fun handleRecognizedGesture(
