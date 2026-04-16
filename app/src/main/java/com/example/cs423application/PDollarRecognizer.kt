@@ -30,15 +30,28 @@ object PDollarRecognizer {
             // square
             PointCloud("rectangle", prepare(rectangleRaw(clockwise = true,  height = 1.0f))),
             PointCloud("rectangle", prepare(rectangleRaw(clockwise = false, height = 1.0f))),
-            // portrait
+            // portrait 1:2
             PointCloud("rectangle", prepare(rectangleRaw(clockwise = true,  height = 2.0f))),
             PointCloud("rectangle", prepare(rectangleRaw(clockwise = false, height = 2.0f))),
-            // landscape
+            // landscape 2:1
             PointCloud("rectangle", prepare(rectangleRaw(clockwise = true,  height = 0.5f))),
             PointCloud("rectangle", prepare(rectangleRaw(clockwise = false, height = 0.5f))),
-            // X gesture
-            PointCloud("x",         prepare(xRaw(leftToRight = true))),
-            PointCloud("x",         prepare(xRaw(leftToRight = false))),
+            // tall portrait 1:3
+            PointCloud("rectangle", prepare(rectangleRaw(clockwise = true,  height = 3.0f))),
+            PointCloud("rectangle", prepare(rectangleRaw(clockwise = false, height = 3.0f))),
+            // wide landscape 3:1
+            PointCloud("rectangle", prepare(rectangleRaw(clockwise = true,  height = 0.33f))),
+            PointCloud("rectangle", prepare(rectangleRaw(clockwise = false, height = 0.33f))),
+            // X gesture — two-stroke, all four starting corners
+            PointCloud("x",         prepare(xRaw(startCorner = Corner.TOP_LEFT))),
+            PointCloud("x",         prepare(xRaw(startCorner = Corner.TOP_RIGHT))),
+            PointCloud("x",         prepare(xRaw(startCorner = Corner.BOTTOM_LEFT))),
+            PointCloud("x",         prepare(xRaw(startCorner = Corner.BOTTOM_RIGHT))),
+            // X gesture — single-stroke, connected via each of the four sides
+            PointCloud("x",         prepare(xSingleStrokeRaw(Connect.RIGHT))),
+            PointCloud("x",         prepare(xSingleStrokeRaw(Connect.LEFT))),
+            PointCloud("x",         prepare(xSingleStrokeRaw(Connect.BOTTOM))),
+            PointCloud("x",         prepare(xSingleStrokeRaw(Connect.TOP))),
             // arrow gestures (dir inferred from raw points)
             PointCloud("arrow",     prepare(arrowRaw(rightPointing = true))),
             PointCloud("arrow",     prepare(arrowRaw(rightPointing = false)))
@@ -178,20 +191,78 @@ object PDollarRecognizer {
         return raw
     }
 
+    private enum class Corner { TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT }
+
     /**
-     * X gesture (2 diagonal strokes concat into one sequence)
-     * leftToRight = true  → \ then /
-     * leftToRight = false → / then \
+     * x gesture (2 diagonal strokes)
+     * 4 variants cover all possible starting corners a user might choose:
+     *   TOP_LEFT: \ -> /
+     *   TOP_RIGHT: / -> \
+     *   BOTTOM_LEFT: / -> \
+     *   BOTTOM_RIGHT: \ -> /
      */
-    private fun xRaw(leftToRight: Boolean): List<GPoint> {
+    private fun xRaw(startCorner: Corner): List<GPoint> {
         val raw = mutableListOf<GPoint>()
         val s   = 8
-        if (leftToRight) {
-            for (i in 0..s) { val t = i.toFloat() / s; raw.add(GPoint(t,      t)) }
-            for (i in 0..s) { val t = i.toFloat() / s; raw.add(GPoint(1f - t, t)) }
-        } else {
-            for (i in 0..s) { val t = i.toFloat() / s; raw.add(GPoint(1f - t, t)) }
-            for (i in 0..s) { val t = i.toFloat() / s; raw.add(GPoint(t,      t)) }
+        when (startCorner) {
+            Corner.TOP_LEFT -> {
+                // stroke 1: top-left → bottom-right (\)
+                for (i in 0..s) { val t = i.toFloat() / s; raw.add(GPoint(t, t)) }
+                // stroke 2: top-right → bottom-left (/)
+                for (i in 0..s) { val t = i.toFloat() / s; raw.add(GPoint(1f - t, t)) }
+            }
+            Corner.TOP_RIGHT -> {
+                // stroke 1: top-right → bottom-left (/)
+                for (i in 0..s) { val t = i.toFloat() / s; raw.add(GPoint(1f - t, t)) }
+                // stroke 2: top-left → bottom-right (\)
+                for (i in 0..s) { val t = i.toFloat() / s; raw.add(GPoint(t, t)) }
+            }
+            Corner.BOTTOM_LEFT -> {
+                // stroke 1: bottom-left → top-right (/)
+                for (i in 0..s) { val t = i.toFloat() / s; raw.add(GPoint(t, 1f - t)) }
+                // stroke 2: bottom-right → top-left (\)
+                for (i in 0..s) { val t = i.toFloat() / s; raw.add(GPoint(1f - t, 1f - t)) }
+            }
+            Corner.BOTTOM_RIGHT -> {
+                // stroke 1: bottom-right → top-left (\)
+                for (i in 0..s) { val t = i.toFloat() / s; raw.add(GPoint(1f - t, 1f - t)) }
+                // stroke 2: bottom-left → top-right (/)
+                for (i in 0..s) { val t = i.toFloat() / s; raw.add(GPoint(t, 1f - t)) }
+            }
+        }
+        return raw
+    }
+
+    private enum class Connect { RIGHT, LEFT, BOTTOM, TOP }
+
+    /**
+     * single-stroke X: both diagonals as one continuous path, connected by a corner jog
+     * RIGHT: TL→BR→TR→BL  LEFT: TR→BL→TL→BR  BOTTOM: TL→BR→BL→TR  TOP: BL→TR→TL→BR
+     */
+    private fun xSingleStrokeRaw(connect: Connect): List<GPoint> {
+        val raw = mutableListOf<GPoint>()
+        val s   = 8
+        when (connect) {
+            Connect.RIGHT -> {
+                for (i in 0..s) { val t = i.toFloat() / s; raw.add(GPoint(t,       t      )) } // TL→BR
+                for (i in 1..s) { val t = i.toFloat() / s; raw.add(GPoint(1f,      1f - t )) } // BR→TR
+                for (i in 1..s) { val t = i.toFloat() / s; raw.add(GPoint(1f - t,  t      )) } // TR→BL
+            }
+            Connect.LEFT -> {
+                for (i in 0..s) { val t = i.toFloat() / s; raw.add(GPoint(1f - t,  t      )) } // TR→BL
+                for (i in 1..s) { val t = i.toFloat() / s; raw.add(GPoint(0f,      1f - t )) } // BL→TL
+                for (i in 1..s) { val t = i.toFloat() / s; raw.add(GPoint(t,       t      )) } // TL→BR
+            }
+            Connect.BOTTOM -> {
+                for (i in 0..s) { val t = i.toFloat() / s; raw.add(GPoint(t,       t      )) } // TL→BR
+                for (i in 1..s) { val t = i.toFloat() / s; raw.add(GPoint(1f - t,  1f     )) } // BR→BL
+                for (i in 1..s) { val t = i.toFloat() / s; raw.add(GPoint(t,       1f - t )) } // BL→TR
+            }
+            Connect.TOP -> {
+                for (i in 0..s) { val t = i.toFloat() / s; raw.add(GPoint(t,       1f - t )) } // BL→TR
+                for (i in 1..s) { val t = i.toFloat() / s; raw.add(GPoint(1f - t,  0f     )) } // TR→TL
+                for (i in 1..s) { val t = i.toFloat() / s; raw.add(GPoint(t,       t      )) } // TL→BR
+            }
         }
         return raw
     }

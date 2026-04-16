@@ -307,7 +307,7 @@ private fun GestureImageSection(
     }
 
     Text(
-        "• Draw rectangle to crop •\n• Draw X to erase •\n • <-- to blur --> to sharpen •",
+        "• Draw rectangle to crop •\n• Draw X to erase •\n • Draw an arrow to the left to blur •\n •Draw an arrow to the right to sharpen •",
         style = MaterialTheme.typography.labelMedium.copy(
             fontSize = 15.sp,
             lineHeight = 20.sp
